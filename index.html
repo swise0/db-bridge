@@ -1,38 +1,53 @@
-V<!DOCTYPE html>
+<!DOCTYPE html>
 <html>
-<head><title>DB Bridge</title></head>
+<head><title>DB Bridge Storage</title></head>
 <body>
     Hello Wolrd 😤
     <script>
-        const DB_NAME = 'SharedCacheDB';
-        const STORE_NAME = 'verificationStore';
- 
-        // Initialize IndexedDB
+        const DB_NAME = 'DomainStatusDB';
+        const STORE_NAME = 'entries';
+
         const request = indexedDB.open(DB_NAME, 1);
         request.onupgradeneeded = (e) => {
-            e.target.result.createObjectStore(STORE_NAME);
-        };
- 
-        window.addEventListener('message', async (event) => {
-            const { type, key, data } = event.data;
-            const db = request.result;
- 
-            if (type === 'SAVE_DATA') {
-                const tx = db.transaction(STORE_NAME, 'readwrite');
-                tx.objectStore(STORE_NAME).put(data, key);
-                tx.oncomplete = () => event.source.postMessage({ type: 'SAVE_SUCCESS', key }, event.origin);
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+                db.createObjectStore(STORE_NAME, { keyPath: 'id' });
             }
- 
-            if (type === 'CHECK_VERIFY') {
+        };
+
+        window.addEventListener('message', async (event) => {
+            const { type, id, data, requestId } = event.data;
+            const db = request.result;
+
+            if (type === 'GET_DATA') {
                 const tx = db.transaction(STORE_NAME, 'readonly');
-                const getReq = tx.objectStore(STORE_NAME).get(key);
+                const store = tx.objectStore(STORE_NAME);
+                const getReq = store.get(id);
                 getReq.onsuccess = () => {
                     event.source.postMessage({ 
-                        type: 'VERIFY_RESPONSE', 
-                        exists: getReq.result !== undefined,
-                        value: getReq.result 
+                        type: 'DATA_RESPONSE', 
+                        id, 
+                        value: getReq.result, 
+                        requestId 
                     }, event.origin);
                 };
+            }
+
+            if (type === 'SAVE_DATA') {
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                const store = tx.objectStore(STORE_NAME);
+                store.put({ id, ...data, updatedAt: Date.now() });
+                tx.oncomplete = () => {
+                    event.source.postMessage({ type: 'SAVE_SUCCESS', id, requestId }, event.origin);
+                };
+            }
+
+            if (type === 'EXPORT_ALL') {
+                const tx = db.transaction(STORE_NAME, 'readonly');
+                const allData = await new Promise(res => {
+                    tx.objectStore(STORE_NAME).getAll().onsuccess = (e) => res(e.target.result);
+                });
+                event.source.postMessage({ type: 'EXPORT_RESPONSE', data: allData, requestId }, event.origin);
             }
         });
     </script>
