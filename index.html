@@ -1,35 +1,37 @@
 <!DOCTYPE html>
 <html>
-<head><title>DB Bridge Storage</title></head>
+<head><title>😤DB Bridge Storage</title></head>
 <body>
-    Hello Wolrd 😤
     <script>
         const DB_NAME = 'DomainStatusDB';
         const STORE_NAME = 'entries';
+        let db = null;
 
+        // Initialize Database
         const request = indexedDB.open(DB_NAME, 1);
         request.onupgradeneeded = (e) => {
-            const db = e.target.result;
-            if (!db.objectStoreNames.contains(STORE_NAME)) {
-                db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+            const database = e.target.result;
+            if (!database.objectStoreNames.contains(STORE_NAME)) {
+                database.createObjectStore(STORE_NAME, { keyPath: 'id' });
             }
         };
 
+        request.onsuccess = (e) => {
+            db = e.target.result;
+            // Tell the parent we are ready
+            window.parent.postMessage({ type: 'BRIDGE_READY' }, "*");
+        };
+
         window.addEventListener('message', async (event) => {
+            if (!db) return; // Ignore messages until DB is ready
             const { type, id, data, requestId } = event.data;
-            const db = request.result;
 
             if (type === 'GET_DATA') {
                 const tx = db.transaction(STORE_NAME, 'readonly');
                 const store = tx.objectStore(STORE_NAME);
                 const getReq = store.get(id);
                 getReq.onsuccess = () => {
-                    event.source.postMessage({ 
-                        type: 'DATA_RESPONSE', 
-                        id, 
-                        value: getReq.result, 
-                        requestId 
-                    }, event.origin);
+                    event.source.postMessage({ type: 'DATA_RESPONSE', value: getReq.result, requestId }, event.origin);
                 };
             }
 
@@ -38,16 +40,15 @@
                 const store = tx.objectStore(STORE_NAME);
                 store.put({ id, ...data, updatedAt: Date.now() });
                 tx.oncomplete = () => {
-                    event.source.postMessage({ type: 'SAVE_SUCCESS', id, requestId }, event.origin);
+                    event.source.postMessage({ type: 'SAVE_SUCCESS', requestId }, event.origin);
                 };
             }
 
             if (type === 'EXPORT_ALL') {
                 const tx = db.transaction(STORE_NAME, 'readonly');
-                const allData = await new Promise(res => {
-                    tx.objectStore(STORE_NAME).getAll().onsuccess = (e) => res(e.target.result);
-                });
-                event.source.postMessage({ type: 'EXPORT_RESPONSE', data: allData, requestId }, event.origin);
+                tx.objectStore(STORE_NAME).getAll().onsuccess = (e) => {
+                    event.source.postMessage({ type: 'EXPORT_RESPONSE', data: e.target.result, requestId }, event.origin);
+                };
             }
         });
     </script>
