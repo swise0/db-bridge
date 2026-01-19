@@ -1,0 +1,39 @@
+V<!DOCTYPE html>
+<html>
+<head><title>DB Bridge</title></head>
+<body>
+    <script>
+        const DB_NAME = 'SharedCacheDB';
+        const STORE_NAME = 'verificationStore';
+ 
+        // Initialize IndexedDB
+        const request = indexedDB.open(DB_NAME, 1);
+        request.onupgradeneeded = (e) => {
+            e.target.result.createObjectStore(STORE_NAME);
+        };
+ 
+        window.addEventListener('message', async (event) => {
+            const { type, key, data } = event.data;
+            const db = request.result;
+ 
+            if (type === 'SAVE_DATA') {
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                tx.objectStore(STORE_NAME).put(data, key);
+                tx.oncomplete = () => event.source.postMessage({ type: 'SAVE_SUCCESS', key }, event.origin);
+            }
+ 
+            if (type === 'CHECK_VERIFY') {
+                const tx = db.transaction(STORE_NAME, 'readonly');
+                const getReq = tx.objectStore(STORE_NAME).get(key);
+                getReq.onsuccess = () => {
+                    event.source.postMessage({ 
+                        type: 'VERIFY_RESPONSE', 
+                        exists: getReq.result !== undefined,
+                        value: getReq.result 
+                    }, event.origin);
+                };
+            }
+        });
+    </script>
+</body>
+</html>
